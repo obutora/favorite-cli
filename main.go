@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	focusedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	blurredStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	cursorStyle         = focusedStyle
-	noStyle             = lipgloss.NewStyle()
+	focusedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	blurredStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	cursorStyle   = focusedStyle
+	noStyle       = lipgloss.NewStyle()
 	focusedButton = focusedStyle.Render("[ 登録 ]")
 	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("登録"))
 )
@@ -26,18 +26,17 @@ type item struct {
 	desc  string
 }
 
-func (i item) Title() string { return i.title }
+func (i item) Title() string       { return i.title }
 func (i item) Description() string { return i.desc }
 func (i item) FilterValue() string { return i.title }
 
 type model struct {
-	focusIndex int
-	inputs     []textinput.Model
-	isAddMode  bool
-	list list.Model
+	focusIndex   int
+	inputs       []textinput.Model
+	isAddMode    bool
+	isDeleteMode bool
+	list         list.Model
 }
-
-
 
 func initialModel() model {
 	items := service.ReadItems()
@@ -46,14 +45,15 @@ func initialModel() model {
 	for _, e := range items {
 		models = append(models, item{
 			title: e.Title,
-			desc: e.Desc,
+			desc:  e.Desc,
 		})
 	}
 
 	m := model{
-		list: list.New(models, list.NewDefaultDelegate(), 0, 0),
-		inputs: make([]textinput.Model, 2),
-		isAddMode: false,
+		list:         list.New(models, list.NewDefaultDelegate(), 0, 0),
+		inputs:       make([]textinput.Model, 2),
+		isAddMode:    false,
+		isDeleteMode: false,
 	}
 
 	m.list.Title = "Bookmarks"
@@ -62,7 +62,7 @@ func initialModel() model {
 	for i := range m.inputs {
 		t = textinput.New()
 		t.Cursor.Style = cursorStyle
-		t.CharLimit = 32
+		t.CharLimit = 1024
 
 		switch i {
 		case 0:
@@ -80,8 +80,6 @@ func initialModel() model {
 	return m
 }
 
-
-
 func (m model) Init() tea.Cmd {
 	return textinput.Blink
 }
@@ -93,22 +91,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
-	
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
-		
+
 		case "ctrl+a":
 			m.isAddMode = true
 			m.list.Title = "Add Bookmark"
-		case "enter" :
+
+		case "ctrl+d":
+			m.isDeleteMode = true
+			m.list.Title = "Delete Bookmark"
+
+		case "enter":
 			if m.isAddMode && m.focusIndex == len(m.inputs) {
 				fmt.Printf("name: %s, address: %s\n", m.inputs[0].Value(), m.inputs[1].Value())
-				service.SaveItem( m.inputs[0].Value(), m.inputs[1].Value())
+				service.AddItem(m.inputs[0].Value(), m.inputs[1].Value())
+				fmt.Printf("add: %s\n", m.inputs[0].Value())
 				return m, tea.Quit
 			}
-			if !m.isAddMode {
+
+			if m.isDeleteMode {
+				service.DeleteItem(m.list.SelectedItem().(item).Title())
+				fmt.Printf("delete: %s\n", m.list.SelectedItem().(item).Title())
+				return m, tea.Quit
+			}
+
+			if !m.isAddMode && !m.isDeleteMode {
 				service.OpenURL(m.list.SelectedItem().(item).Description())
 				return m, tea.Quit
 			}
@@ -171,7 +182,7 @@ func (m *model) updateInputs(msg tea.Msg) tea.Cmd {
 }
 
 func (m model) View() string {
-	if (m.isAddMode){
+	if m.isAddMode {
 		var b strings.Builder
 
 		for i := range m.inputs {
@@ -180,13 +191,13 @@ func (m model) View() string {
 				b.WriteRune('\n')
 			}
 		}
-	
+
 		button := &blurredButton
 		if m.focusIndex == len(m.inputs) {
 			button = &focusedButton
 		}
 		fmt.Fprintf(&b, "\n\n%s\n\n", *button)
-	
+
 		// b.WriteString(helpStyle.Render("cursor mode is "))
 		// b.WriteString(cursorModeHelpStyle.Render(m.cursorMode.String()))
 		// b.WriteString(helpStyle.Render(" (ctrl+r to change style)"))
@@ -196,7 +207,7 @@ func (m model) View() string {
 }
 
 func main() {
-		p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("could not start program: %s\n", err)
